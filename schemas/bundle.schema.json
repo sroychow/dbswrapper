@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/dbs2go-wrapper/bundle.schema.json",
+  "title": "DBS dataset metadata bundle",
+  "type": "object",
+  "required": ["schema_version", "dataset", "source", "sections"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "dataset": {"type": "string", "pattern": "^/[^/]+/[^/]+/[^/]+$"},
+    "source": {
+      "type": "object",
+      "required": ["base_url", "instance", "fetched_at"],
+      "properties": {
+        "base_url": {"type": "string"},
+        "instance": {"type": "string"},
+        "fetched_at": {"type": "string"}
+      },
+      "additionalProperties": true
+    },
+    "sections": {
+      "type": "object",
+      "required": [
+        "metadata",
+        "summary",
+        "runs",
+        "blocks",
+        "output_configs",
+        "parents",
+        "children"
+      ],
+      "additionalProperties": true
+    }
+  },
+  "additionalProperties": false
+}

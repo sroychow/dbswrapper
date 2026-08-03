@@ -1,0 +1,242 @@
+# dbs2go-wrapper
+
+A small, read-only Linux command-line wrapper for the CMS DBS Reader/dbs2go HTTP APIs.
+It searches for datasets and writes dataset information and metadata to organized JSON files.
+
+This repository is intended as the first building block for a later local cache and web UI.
+
+## What it dumps
+
+For each matching dataset, the `dump` command queries:
+
+- `datasets` — detailed dataset metadata
+- `filesummaries` — file, event, block, lumi, and size summary
+- `runs` — associated runs
+- `blocks` — block metadata
+- `outputconfigs` — processing and CMSSW configuration
+- `datasetparents` — parent datasets
+- `datasetchildren` — child datasets
+- `files` — optional full file metadata
+
+Only read-only DBS endpoints are allowed by the client.
+
+## Requirements
+
+- Linux
+- Python 3.10 or newer
+- A valid CMS X.509 proxy, or a certificate/key pair
+- Network access to CMSWEB
+
+## Installation
+
+```bash
+cd dbs2go-wrapper
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install --upgrade pip
+python -m pip install -e .
+```
+
+Verify the installation:
+
+```bash
+dbs2go-json --version
+dbs2go-json --help
+```
+
+You can also run directly from the repository without installing the package, provided `requests` is available:
+
+```bash
+./bin/dbs2go-json --help
+```
+
+## X.509 setup
+
+The easiest method is to create a CMS proxy:
+
+```bash
+voms-proxy-init -voms cms -valid 24:00
+export X509_USER_PROXY="$(voms-proxy-info -path)"
+```
+
+The program searches for credentials in this order:
+
+1. `--proxy`
+2. `--cert` and `--key`
+3. `X509_USER_PROXY`
+4. `/tmp/x509up_u$(id -u)`
+5. `X509_USER_CERT` and `X509_USER_KEY`
+6. `~/.globus/usercert.pem` and `~/.globus/userkey.pem`
+
+The private key or proxy is never copied into the output directory.
+
+## Search for datasets
+
+```bash
+dbs2go-json search '/Muon/Run2024*/MINIAOD' --names-only
+```
+
+Return detailed search results as JSON:
+
+```bash
+dbs2go-json search '/Muon/Run2024*/MINIAOD' \
+  --access-type VALID \
+  --output search.json
+```
+
+Add any supported DBS dataset parameter:
+
+```bash
+dbs2go-json search '/*/*/NANOAODSIM' \
+  --param acquisition_era_name=Run3Summer24* \
+  --param physics_group_name=Higgs \
+  --output search.json
+```
+
+## Dump dataset information
+
+Dump an exact dataset:
+
+```bash
+dbs2go-json dump \
+  '/Muon/Run2024C-PromptReco-v1/MINIAOD' \
+  --output output
+```
+
+Dump every dataset matching a wildcard:
+
+```bash
+dbs2go-json dump \
+  '/Muon/Run2024*/MINIAOD' \
+  --output output \
+  --workers 4 \
+  --max-datasets 200
+```
+
+Include full file metadata:
+
+```bash
+dbs2go-json dump \
+  '/Muon/Run2024C-PromptReco-v1/MINIAOD' \
+  --output output \
+  --include-files
+```
+
+`--include-files` can create a large JSON file for large datasets, so it is disabled by default.
+
+## Output layout
+
+```text
+output/
+├── manifest.json
+├── search_results.json
+└── datasets/
+    └── Muon/
+        └── Run2024C-PromptReco-v1/
+            └── MINIAOD/
+                ├── bundle.json
+                ├── metadata.json
+                ├── summary.json
+                ├── runs.json
+                ├── blocks.json
+                ├── output_configs.json
+                ├── parents.json
+                ├── children.json
+                └── files.json          # only with --include-files
+```
+
+`bundle.json` contains all sections in one file. The individual files make later database ingestion simpler.
+
+## Run an individual DBS Reader query
+
+```bash
+dbs2go-json query filesummaries \
+  --param dataset=/Muon/Run2024C-PromptReco-v1/MINIAOD \
+  --param validFileOnly=1 \
+  --output summary.json
+```
+
+Multiple values for the same parameter are supported:
+
+```bash
+dbs2go-json query datasets \
+  --param dataset=/A/B/C \
+  --param dataset=/D/E/F \
+  --param detail=true \
+  --output datasets.json
+```
+
+## DBS instances
+
+The predefined instances are:
+
+```bash
+--instance global
+--instance phys01
+--instance phys02
+--instance phys03
+```
+
+A custom or local DBS Reader can be used with:
+
+```bash
+dbs2go-json query status \
+  --base-url https://example.cern.ch/dbs2go \
+  --proxy /tmp/x509up_u$(id -u)
+```
+
+For a local unauthenticated test service:
+
+```bash
+dbs2go-json query status \
+  --base-url http://127.0.0.1:8080/dbs2go \
+  --no-cert
+```
+
+## TLS options
+
+Use a custom CA bundle:
+
+```bash
+dbs2go-json search '/Muon/Run2024*/MINIAOD' \
+  --ca-bundle /etc/grid-security/certificates/ca-bundle.crt
+```
+
+`--insecure` disables server-certificate verification and should only be used during local testing.
+
+## Environment variables
+
+```text
+DBS_INSTANCE       global, phys01, phys02, or phys03
+DBS_READER_URL     complete DBS Reader base URL override
+X509_USER_PROXY    combined proxy PEM path
+X509_USER_CERT     certificate PEM path
+X509_USER_KEY      private-key PEM path
+```
+
+## Tests
+
+```bash
+python -m pip install -e '.[dev]'
+pytest
+ruff check src tests
+```
+
+The tests use a local fake DBS HTTP server and do not require a CMS certificate.
+
+## Current limitations
+
+- The first version reads complete JSON responses into memory.
+- Full file dumping may be expensive for very large datasets.
+- Lumi-level information is not yet expanded per file.
+- There is no local SQL cache yet.
+- Refresh and incremental synchronization are planned for a later stage.
+
+## Next development step
+
+The JSON output is intentionally structured so that the next repository version can add:
+
+1. PostgreSQL ingestion and normalized tables.
+2. Incremental refresh using DBS modification timestamps.
+3. Redis response caching.
+4. A Go or Python API service over the local catalogue.

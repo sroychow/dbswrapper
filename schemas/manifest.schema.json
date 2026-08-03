@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/dbs2go-wrapper/manifest.schema.json",
+  "title": "DBS metadata dump manifest",
+  "type": "object",
+  "required": ["schema_version", "generated_at", "query", "source", "counts", "datasets"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "generated_at": {"type": "string"},
+    "query": {"type": "object"},
+    "source": {"type": "object"},
+    "counts": {
+      "type": "object",
+      "required": ["matched", "successful", "failed"],
+      "properties": {
+        "matched": {"type": "integer", "minimum": 0},
+        "successful": {"type": "integer", "minimum": 0},
+        "failed": {"type": "integer", "minimum": 0}
+      }
+    },
+    "datasets": {"type": "array"}
+  },
+  "additionalProperties": true
+}
