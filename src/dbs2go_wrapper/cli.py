@@ -6,7 +6,7 @@ import os
 import sys
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
-from typing import Any
+from typing import Any, Optional, Union
 
 from . import __version__
 from .client import (
@@ -150,7 +150,7 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def runtime_config(args: argparse.Namespace) -> tuple[str, CertificateConfig, bool | str]:
+def runtime_config(args: argparse.Namespace) -> tuple[str, CertificateConfig, Union[bool, str]]:
     base_url = args.base_url or DBS_INSTANCES[args.instance]
     certificate = discover_certificate(
         proxy=args.proxy,
@@ -158,7 +158,7 @@ def runtime_config(args: argparse.Namespace) -> tuple[str, CertificateConfig, bo
         key=args.key,
         allow_no_certificate=args.no_cert,
     )
-    verify: bool | str
+    verify: Union[bool, str]
     if args.insecure:
         verify = False
     elif args.ca_bundle:
@@ -179,7 +179,7 @@ def make_client(args: argparse.Namespace) -> DBSClient:
     )
 
 
-def emit(payload: Any, *, output: Path | None, pretty: bool) -> None:
+def emit(payload: Any, *, output: Optional[Path], pretty: bool) -> None:
     if output:
         write_json(output, payload, pretty=pretty)
         print(output)
@@ -218,7 +218,7 @@ def dump_one_dataset(
     root: Path,
     base_url: str,
     certificate: CertificateConfig,
-    verify: bool | str,
+    verify: Union[bool, str],
 ) -> dict[str, Any]:
     target = dataset_output_dir(root, dataset)
     try:
@@ -373,7 +373,7 @@ def handle_query(args: argparse.Namespace) -> int:
     return 0
 
 
-def main(argv: list[str] | None = None) -> int:
+def main(argv: Optional[list[str]] = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
     try:

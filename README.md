@@ -23,7 +23,7 @@ Only read-only DBS endpoints are allowed by the client.
 ## Requirements
 
 - Linux
-- Python 3.10 or newer
+- Python 3.9 or newer
 - A valid CMS X.509 proxy, or a certificate/key pair
 - Network access to CMSWEB
 
@@ -223,20 +223,3 @@ ruff check src tests
 ```
 
 The tests use a local fake DBS HTTP server and do not require a CMS certificate.
-
-## Current limitations
-
-- The first version reads complete JSON responses into memory.
-- Full file dumping may be expensive for very large datasets.
-- Lumi-level information is not yet expanded per file.
-- There is no local SQL cache yet.
-- Refresh and incremental synchronization are planned for a later stage.
-
-## Next development step
-
-The JSON output is intentionally structured so that the next repository version can add:
-
-1. PostgreSQL ingestion and normalized tables.
-2. Incremental refresh using DBS modification timestamps.
-3. Redis response caching.
-4. A Go or Python API service over the local catalogue.

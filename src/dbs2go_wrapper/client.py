@@ -3,7 +3,7 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any, Mapping, Optional, Union
 
 import requests
 from requests.adapters import HTTPAdapter
@@ -52,11 +52,11 @@ class DBSClientError(RuntimeError):
 class CertificateConfig:
     """Resolved client-certificate configuration for requests."""
 
-    request_value: str | tuple[str, str] | None
+    request_value: Optional[Union[str, tuple[str, str]]]
     description: str
 
 
-def _existing(path: str | os.PathLike[str] | None) -> Path | None:
+def _existing(path: Optional[Union[str, os.PathLike[str]]]) -> Optional[Path]:
     if not path:
         return None
     candidate = Path(path).expanduser()
@@ -65,9 +65,9 @@ def _existing(path: str | os.PathLike[str] | None) -> Path | None:
 
 def discover_certificate(
     *,
-    proxy: str | None = None,
-    cert: str | None = None,
-    key: str | None = None,
+    proxy: Optional[str] = None,
+    cert: Optional[str] = None,
+    key: Optional[str] = None,
     allow_no_certificate: bool = False,
 ) -> CertificateConfig:
     """Resolve an X.509 proxy or certificate/key pair.
@@ -165,10 +165,10 @@ class DBSClient:
         *,
         base_url: str,
         certificate: CertificateConfig,
-        verify: bool | str = True,
+        verify: Union[bool, str] = True,
         timeout: float = 60.0,
         retries: int = 3,
-        session: requests.Session | None = None,
+        session: Optional[requests.Session] = None,
     ) -> None:
         self.base_url = base_url.rstrip("/")
         self.certificate = certificate
@@ -188,8 +188,8 @@ class DBSClient:
     def get(
         self,
         endpoint: str,
-        params: Mapping[str, Any] | None = None,
-    ) -> list[dict[str, Any]] | dict[str, Any]:
+        params: Optional[Mapping[str, Any]] = None,
+    ) -> Union[list[dict[str, Any]], dict[str, Any]]:
         endpoint = endpoint.strip("/")
         if endpoint not in READ_ENDPOINTS:
             raise DBSClientError(
@@ -250,7 +250,7 @@ class DBSClient:
         *,
         access_type: str = "*",
         detail: bool = True,
-        extra_params: Mapping[str, Any] | None = None,
+        extra_params: Optional[Mapping[str, Any]] = None,
     ) -> list[dict[str, Any]]:
         params: dict[str, Any] = {
             "dataset": pattern,
