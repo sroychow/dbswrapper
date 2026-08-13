@@ -30,7 +30,7 @@ Only read-only DBS endpoints are allowed by the client.
 ## Installation
 
 ```bash
-cd dbs2go-wrapper
+cd dbswrapper
 python3 -m venv .venv
 source .venv/bin/activate
 python -m pip install --upgrade pip
@@ -57,6 +57,7 @@ The easiest method is to create a CMS proxy:
 ```bash
 voms-proxy-init -voms cms -valid 24:00
 export X509_USER_PROXY="$(voms-proxy-info -path)"
+export X509_CERT_DIR=/cvmfs/grid.cern.ch/etc/grid-security/certificates
 ```
 
 The program searches for credentials in this order:
@@ -73,7 +74,7 @@ The private key or proxy is never copied into the output directory.
 ## Search for datasets
 
 ```bash
-dbs2go-json search '/Muon/Run2024*/MINIAOD' --names-only
+dbs2go-json search '/Muon/Run2024*/MINIAOD' --names-only --ca-bundle "$X509_CERT_DIR"
 ```
 
 Return detailed search results as JSON:
@@ -81,7 +82,8 @@ Return detailed search results as JSON:
 ```bash
 dbs2go-json search '/Muon/Run2024*/MINIAOD' \
   --access-type VALID \
-  --output search.json
+  --output search.json \
+  --ca-bundle "$X509_CERT_DIR"
 ```
 
 Add any supported DBS dataset parameter:
@@ -90,7 +92,8 @@ Add any supported DBS dataset parameter:
 dbs2go-json search '/*/*/NANOAODSIM' \
   --param acquisition_era_name=Run3Summer24* \
   --param physics_group_name=Higgs \
-  --output search.json
+  --output search.json \
+  --ca-bundle "$X509_CERT_DIR"
 ```
 
 ## Dump dataset information
@@ -100,7 +103,8 @@ Dump an exact dataset:
 ```bash
 dbs2go-json dump \
   '/Muon/Run2024C-PromptReco-v1/MINIAOD' \
-  --output output
+  --output output \
+  --ca-bundle "$X509_CERT_DIR"
 ```
 
 Dump every dataset matching a wildcard:
@@ -110,8 +114,9 @@ dbs2go-json dump \
   '/Muon/Run2024*/MINIAOD' \
   --output output \
   --workers 4 \
-  --max-datasets 200
-```
+  --max-datasets 200 \
+  --ca-bundle "$X509_CERT_DIR"
+``` 
 
 Include full file metadata:
 
@@ -119,7 +124,8 @@ Include full file metadata:
 dbs2go-json dump \
   '/Muon/Run2024C-PromptReco-v1/MINIAOD' \
   --output output \
-  --include-files
+  --include-files \
+  --ca-bundle "$X509_CERT_DIR"
 ```
 
 `--include-files` can create a large JSON file for large datasets, so it is disabled by default.
@@ -163,7 +169,8 @@ dbs2go-json query datasets \
   --param dataset=/A/B/C \
   --param dataset=/D/E/F \
   --param detail=true \
-  --output datasets.json
+  --output datasets.json \
+  --ca-bundle "$X509_CERT_DIR"
 ```
 
 ## DBS instances
@@ -182,7 +189,8 @@ A custom or local DBS Reader can be used with:
 ```bash
 dbs2go-json query status \
   --base-url https://example.cern.ch/dbs2go \
-  --proxy /tmp/x509up_u$(id -u)
+  --proxy /tmp/x509up_u$(id -u) \
+  --ca-bundle "$X509_CERT_DIR"
 ```
 
 For a local unauthenticated test service:
@@ -190,19 +198,9 @@ For a local unauthenticated test service:
 ```bash
 dbs2go-json query status \
   --base-url http://127.0.0.1:8080/dbs2go \
-  --no-cert
+  --no-cert \
+  --ca-bundle "$X509_CERT_DIR"
 ```
-
-## TLS options
-
-Use a custom CA bundle:
-
-```bash
-dbs2go-json search '/Muon/Run2024*/MINIAOD' \
-  --ca-bundle /etc/grid-security/certificates/ca-bundle.crt
-```
-
-`--insecure` disables server-certificate verification and should only be used during local testing.
 
 ## Environment variables
 
