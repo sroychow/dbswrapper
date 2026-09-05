@@ -121,6 +121,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="Also dump full file metadata; this can be very large",
     )
     dump.add_argument(
+        "--include-hierarchy",
+        action="store_true",
+        help="Recursively dump all parent and child datasets as hierarchy.json",
+    )
+    dump.add_argument(
         "--all-files",
         action="store_true",
         help="Include invalid files as well as valid files",
@@ -234,6 +239,8 @@ def dump_one_dataset(
                 include_files=args.include_files,
                 valid_files_only=not args.all_files,
             )
+            if args.include_hierarchy:
+                sections["hierarchy"] = client.dataset_hierarchy(dataset)
 
         fetched_at = utc_now()
         bundle = {
@@ -347,6 +354,7 @@ def handle_dump(args: argparse.Namespace) -> int:
             "access_type": args.access_type,
             "extra_params": extra,
             "include_files": args.include_files,
+            "include_hierarchy": args.include_hierarchy,
             "valid_files_only": not args.all_files,
         },
         "source": {

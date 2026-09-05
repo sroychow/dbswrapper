@@ -10,6 +10,16 @@ from dbs2go_wrapper.cli import main
 
 
 DATASET = "/Primary/Processed-v1/MINIAOD"
+PARENT_CHAIN = {
+    DATASET: ["/Parent/Processed/GEN-SIM"],
+    "/Parent/Processed/GEN-SIM": ["/Grandparent/Processed/GEN"],
+    "/Grandparent/Processed/GEN": [],
+}
+CHILD_CHAIN = {
+    DATASET: ["/Child/Processed/NANOAOD"],
+    "/Child/Processed/NANOAOD": ["/Grandchild/Processed/NANOAOD"],
+    "/Grandchild/Processed/NANOAOD": [],
+}
 
 
 class FakeDBSHandler(BaseHTTPRequestHandler):
@@ -40,9 +50,15 @@ class FakeDBSHandler(BaseHTTPRequestHandler):
         elif endpoint == "outputconfigs":
             payload = [{"release_version": "CMSSW_X_Y_Z", "global_tag": "TEST"}]
         elif endpoint == "datasetparents":
-            payload = [{"parent_dataset": "/Parent/Processed/GEN-SIM"}]
+            payload = [
+                {"parent_dataset": parent}
+                for parent in PARENT_CHAIN.get(params.get("dataset", [""])[0], [])
+            ]
         elif endpoint == "datasetchildren":
-            payload = []
+            payload = [
+                {"child_dataset": child}
+                for child in CHILD_CHAIN.get(params.get("dataset", [""])[0], [])
+            ]
         elif endpoint == "files":
             payload = [{"logical_file_name": "/store/test.root", "event_count": 100}]
         else:
@@ -80,6 +96,7 @@ def test_dump_command_writes_bundle_and_manifest(tmp_path: Path) -> None:
                 "--output",
                 str(output),
                 "--include-files",
+                "--include-hierarchy",
                 "--workers",
                 "2",
             ]
@@ -98,3 +115,20 @@ def test_dump_command_writes_bundle_and_manifest(tmp_path: Path) -> None:
     assert bundle["dataset"] == DATASET
     assert bundle["sections"]["summary"][0]["num_event"] == 100
     assert bundle["sections"]["files"][0]["logical_file_name"] == "/store/test.root"
+    hierarchy = bundle["sections"]["hierarchy"]
+    assert hierarchy == {
+        "dataset": DATASET,
+        "parents": [
+            {
+                "dataset": "/Parent/Processed/GEN-SIM",
+                "parents": [{"dataset": "/Grandparent/Processed/GEN", "parents": []}],
+            }
+        ],
+        "children": [
+            {
+                "dataset": "/Child/Processed/NANOAOD",
+                "children": [{"dataset": "/Grandchild/Processed/NANOAOD", "children": []}],
+            }
+        ],
+    }
+    assert json.loads((target / "hierarchy.json").read_text(encoding="utf-8")) == hierarchy

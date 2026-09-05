@@ -306,3 +306,40 @@ class DBSClient:
         for name, (endpoint, params) in sections.items():
             result[name] = self.get(endpoint, params)
         return result
+
+    def dataset_hierarchy(self, dataset: str) -> dict[str, Any]:
+        """Return every ancestor and descendant of ``dataset`` as a tree.
+
+        DBS returns only directly related datasets from the parent and child
+        endpoints.  This method follows each direction independently so the
+        returned hierarchy does not loop back through the dataset being dumped.
+        """
+
+        def related_datasets(endpoint: str, current: str, field: str) -> list[str]:
+            payload = self.get(endpoint, {"dataset": current})
+            if not isinstance(payload, list):
+                raise DBSClientError(f"The {endpoint} endpoint returned an object instead of a list")
+            return sorted(
+                {
+                    row[field]
+                    for row in payload
+                    if isinstance(row, dict) and isinstance(row.get(field), str)
+                }
+            )
+
+        def walk(endpoint: str, field: str, branch: str, current: str, seen: set[str]) -> list[dict[str, Any]]:
+            nodes: list[dict[str, Any]] = []
+            for related in related_datasets(endpoint, current, field):
+                node: dict[str, Any] = {"dataset": related}
+                if related in seen:
+                    node["cycle"] = True
+                else:
+                    node[branch] = walk(endpoint, field, branch, related, seen | {related})
+                nodes.append(node)
+            return nodes
+
+        return {
+            "dataset": dataset,
+            "parents": walk("datasetparents", "parent_dataset", "parents", dataset, {dataset}),
+            "children": walk("datasetchildren", "child_dataset", "children", dataset, {dataset}),
+        }

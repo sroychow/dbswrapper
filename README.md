@@ -17,6 +17,7 @@ For each matching dataset, the `dump` command queries:
 - `datasetparents` — parent datasets
 - `datasetchildren` — child datasets
 - `files` — optional full file metadata
+- `hierarchy` — optional recursive parent and child dataset tree
 
 Only read-only DBS endpoints are allowed by the client.
 
@@ -130,6 +131,21 @@ dbs2go-json dump \
 
 `--include-files` can create a large JSON file for large datasets, so it is disabled by default.
 
+Include the complete parent and child hierarchy of each dumped dataset:
+
+```bash
+dbs2go-json dump \
+  '/Muon/Run2024C-PromptReco-v1/MINIAOD' \
+  --include-hierarchy \
+  --output output \
+  --ca-bundle "$X509_CERT_DIR"
+```
+
+This writes `hierarchy.json` and includes it in `bundle.json`. The hierarchy is a tree rooted at
+the requested dataset: each parent recursively contains its parents and each child recursively
+contains its children. Repeated relationships are marked with `"cycle": true` rather than being
+followed indefinitely.
+
 ## Output layout
 
 ```text
@@ -148,6 +164,7 @@ output/
                 ├── output_configs.json
                 ├── parents.json
                 ├── children.json
+                ├── hierarchy.json      # only with --include-hierarchy
                 └── files.json          # only with --include-files
 ```
 
