@@ -14,7 +14,11 @@ For each matching dataset, the `dump` command queries:
 - `runs` — associated runs
 - `blocks` — block metadata
 - `outputconfigs` — processing configuration and CMSSW global tag
+<<<<<<< ours
 - `blocklocations` — replica sites for every dataset block, summarized as site and replication metrics
+=======
+- `blocklocations` — replica sites for every dataset block, summarized as site and replication metrics when supported by the configured DBS Reader
+>>>>>>> theirs
 - `datasetparents` — parent datasets
 - `datasetchildren` — child datasets
 - `files` — optional full file metadata
@@ -72,6 +76,21 @@ The program searches for credentials in this order:
 6. `~/.globus/usercert.pem` and `~/.globus/userkey.pem`
 
 The private key or proxy is never copied into the output directory.
+
+### Encrypted private keys
+
+The HTTP client cannot supply an interactive password for an encrypted private key. If you see
+`Client private key is encrypted, password is required`, create a CMS proxy and use it instead:
+
+```bash
+voms-proxy-init -voms cms -valid 24:00
+export X509_USER_PROXY="$(voms-proxy-info -path)"
+dbs2go-json dump '/Muon/Run2024C-PromptReco-v1/MINIAOD' --output output
+```
+
+You can also pass that proxy explicitly with `--proxy "$(voms-proxy-info -path)"`. As an
+alternative, `--cert` and `--key` require an unencrypted private key stored with restrictive file
+permissions.
 
 ## Search for datasets
 
@@ -190,7 +209,13 @@ output/
 raw DBS output configuration records and their unique CMSSW `global_tags`. The `site_replicas`
 section lists every replica site by block, per-site file and block coverage fractions, and the
 fractions of dataset blocks and files replicated to more than one site. The individual files make
+<<<<<<< ours
 later database ingestion simpler.
+=======
+later database ingestion simpler. Some current CMS DBS Reader deployments do not expose
+`blocklocations`; in that case the dump succeeds and `site_replicas.json` reports
+`"available": false` with an explanation instead of failing the entire dataset dump.
+>>>>>>> theirs
 
 ## Run an individual DBS Reader query
 

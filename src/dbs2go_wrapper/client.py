@@ -64,6 +64,28 @@ def _existing(path: Optional[Union[str, os.PathLike[str]]]) -> Optional[Path]:
     return candidate if candidate.is_file() else None
 
 
+def _require_unencrypted_private_key(path: Path) -> None:
+    """Reject keys that Requests cannot use without an interactive password."""
+    try:
+        contents = path.read_bytes()
+    except OSError:
+        return
+    if b"ENCRYPTED PRIVATE KEY" in contents or b"Proc-Type: 4,ENCRYPTED" in contents:
+        raise DBSClientError(
+            f"Private key is encrypted: {path}. Requests cannot prompt for a key password. "
+            "Create a CMS proxy with 'voms-proxy-init -voms cms' and use --proxy "
+            "or X509_USER_PROXY, or provide an unencrypted key in a protected file."
+        )
+
+
+def _certificate_key_config(cert_path: Path, key_path: Path) -> CertificateConfig:
+    _require_unencrypted_private_key(key_path)
+    return CertificateConfig(
+        (str(cert_path), str(key_path)),
+        "x509-certificate-key",
+    )
+
+
 def discover_certificate(
     *,
     proxy: Optional[str] = None,
@@ -93,10 +115,7 @@ def discover_certificate(
         key_path = _existing(key)
         if not cert_path or not key_path:
             raise DBSClientError("Both --cert and --key must point to existing files")
-        return CertificateConfig(
-            (str(cert_path), str(key_path)),
-            "x509-certificate-key",
-        )
+        return _certificate_key_config(cert_path, key_path)
 
     env_proxy = _existing(os.getenv("X509_USER_PROXY"))
     if env_proxy:
@@ -112,18 +131,12 @@ def discover_certificate(
     env_cert = _existing(os.getenv("X509_USER_CERT"))
     env_key = _existing(os.getenv("X509_USER_KEY"))
     if env_cert and env_key:
-        return CertificateConfig(
-            (str(env_cert), str(env_key)),
-            "x509-certificate-key",
-        )
+        return _certificate_key_config(env_cert, env_key)
 
     globus_cert = _existing("~/.globus/usercert.pem")
     globus_key = _existing("~/.globus/userkey.pem")
     if globus_cert and globus_key:
-        return CertificateConfig(
-            (str(globus_cert), str(globus_key)),
-            "x509-certificate-key",
-        )
+        return _certificate_key_config(globus_cert, globus_key)
 
     if allow_no_certificate:
         return CertificateConfig(None, "none")
@@ -330,7 +343,23 @@ class DBSClient:
             if not isinstance(file_count, int):
                 file_count = 0
             total_files += file_count
+<<<<<<< ours
             payload = self.get("blocklocations", {"block_name": block_name})
+=======
+            try:
+                payload = self.get("blocklocations", {"block_name": block_name})
+            except DBSClientError as exc:
+                if "HTTP 404" in str(exc):
+                    return {
+                        "available": False,
+                        "source": "DBSReader/blocklocations",
+                        "reason": (
+                            "The configured DBS Reader does not provide the blocklocations "
+                            "endpoint, so site replica metrics could not be collected."
+                        ),
+                    }
+                raise
+>>>>>>> theirs
             if not isinstance(payload, list):
                 raise DBSClientError(
                     "The blocklocations endpoint returned an object instead of a list"
