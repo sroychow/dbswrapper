@@ -277,10 +277,10 @@ def dump_one_dataset(
             },
             "sections": sections,
         }
+        target.mkdir(parents=True, exist_ok=True)
+        for path in target.glob("*.json"):
+            path.unlink()
         write_json(target / "bundle.json", bundle, pretty=not args.compact)
-        write_json(target / "configuration.json", bundle["configuration"], pretty=not args.compact)
-        for section, payload in sections.items():
-            write_json(target / f"{section}.json", payload, pretty=not args.compact)
         return {
             "dataset": dataset,
             "status": "ok",

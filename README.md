@@ -14,11 +14,7 @@ For each matching dataset, the `dump` command queries:
 - `runs` — associated runs
 - `blocks` — block metadata
 - `outputconfigs` — processing configuration and CMSSW global tag
-<<<<<<< ours
-- `blocklocations` — replica sites for every dataset block, summarized as site and replication metrics
-=======
 - `blocklocations` — replica sites for every dataset block, summarized as site and replication metrics when supported by the configured DBS Reader
->>>>>>> theirs
 - `datasetparents` — parent datasets
 - `datasetchildren` — child datasets
 - `files` — optional full file metadata
@@ -191,30 +187,16 @@ output/
     └── Muon/
         └── Run2024C-PromptReco-v1/
             └── MINIAOD/
-                ├── bundle.json
-                ├── metadata.json
-                ├── summary.json
-                ├── runs.json
-                ├── blocks.json
-                ├── output_configs.json
-                ├── configuration.json
-                ├── site_replicas.json
-                ├── parents.json
-                ├── children.json
-                ├── hierarchy.json      # only with --include-hierarchy
-                └── files.json          # only with --include-files
-```
+                └── bundle.json
 
-`bundle.json` contains all sections in one file. Its top-level `configuration` field contains the
-raw DBS output configuration records and their unique CMSSW `global_tags`. The `site_replicas`
-section lists every replica site by block, per-site file and block coverage fractions, and the
-fractions of dataset blocks and files replicated to more than one site. The individual files make
-<<<<<<< ours
-later database ingestion simpler.
-=======
-later database ingestion simpler. Some current CMS DBS Reader deployments do not expose
-`blocklocations`; in that case the dump succeeds and `site_replicas.json` reports
-`"available": false` with an explanation instead of failing the entire dataset dump.
+Each dataset directory contains only `bundle.json`, which contains every requested section. Its
+top-level `configuration` field contains the raw DBS output configuration records and their unique
+CMSSW `global_tags`. The `site_replicas` section lists every replica site by block, per-site file
+and block coverage fractions, and the fractions of dataset blocks and files replicated to more
+than one site. Re-dumping a dataset removes any older auxiliary JSON files from that dataset
+directory. Some current CMS DBS Reader deployments do not expose `blocklocations`; in that case
+the dump succeeds and the `site_replicas` section reports `"available": false` with an explanation
+instead of failing the entire dataset dump.
 >>>>>>> theirs
 
 ## Run an individual DBS Reader query

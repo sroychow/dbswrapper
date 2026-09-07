@@ -90,6 +90,9 @@ def run_server() -> tuple[ThreadingHTTPServer, threading.Thread, str]:
 def test_dump_command_writes_bundle_and_manifest(tmp_path: Path) -> None:
     server, thread, base_url = run_server()
     output = tmp_path / "dump"
+    target = output / "datasets" / "Primary" / "Processed-v1" / "MINIAOD"
+    target.mkdir(parents=True)
+    (target / "stale-section.json").write_text("{}", encoding="utf-8")
     try:
         exit_code = main(
             [
@@ -125,8 +128,8 @@ def test_dump_command_writes_bundle_and_manifest(tmp_path: Path) -> None:
         "valid_files_only": False,
     }
 
-    target = output / "datasets" / "Primary" / "Processed-v1" / "MINIAOD"
     bundle = json.loads((target / "bundle.json").read_text(encoding="utf-8"))
+    assert list(target.glob("*.json")) == [target / "bundle.json"]
     assert bundle["dataset"] == DATASET
     assert bundle["sections"]["summary"][0]["num_event"] == 100
     assert bundle["sections"]["files"][0]["logical_file_name"] == "/store/test.root"
@@ -134,10 +137,6 @@ def test_dump_command_writes_bundle_and_manifest(tmp_path: Path) -> None:
         "output_configs": [{"release_version": "CMSSW_X_Y_Z", "global_tag": "TEST"}],
         "global_tags": ["TEST"],
     }
-    assert (
-        json.loads((target / "configuration.json").read_text(encoding="utf-8"))
-        == bundle["configuration"]
-    )
     site_replicas = bundle["sections"]["site_replicas"]
     assert site_replicas["replication"] == {
         "site_count": 2,
@@ -182,4 +181,3 @@ def test_dump_command_writes_bundle_and_manifest(tmp_path: Path) -> None:
             }
         ],
     }
-    assert json.loads((target / "hierarchy.json").read_text(encoding="utf-8")) == hierarchy

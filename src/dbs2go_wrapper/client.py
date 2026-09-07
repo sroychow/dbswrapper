@@ -343,9 +343,6 @@ class DBSClient:
             if not isinstance(file_count, int):
                 file_count = 0
             total_files += file_count
-<<<<<<< ours
-            payload = self.get("blocklocations", {"block_name": block_name})
-=======
             try:
                 payload = self.get("blocklocations", {"block_name": block_name})
             except DBSClientError as exc:
@@ -359,7 +356,6 @@ class DBSClient:
                         ),
                     }
                 raise
->>>>>>> theirs
             if not isinstance(payload, list):
                 raise DBSClientError(
                     "The blocklocations endpoint returned an object instead of a list"
