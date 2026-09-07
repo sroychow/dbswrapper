@@ -13,7 +13,8 @@ For each matching dataset, the `dump` command queries:
 - `filesummaries` — file, event, block, lumi, and size summary
 - `runs` — associated runs
 - `blocks` — block metadata
-- `outputconfigs` — processing and CMSSW configuration
+- `outputconfigs` — processing configuration and CMSSW global tag
+- `blocklocations` — replica sites for every dataset block, summarized as site and replication metrics
 - `datasetparents` — parent datasets
 - `datasetchildren` — child datasets
 - `files` — optional full file metadata
@@ -131,6 +132,16 @@ dbs2go-json dump \
 
 `--include-files` can create a large JSON file for large datasets, so it is disabled by default.
 
+Dump every optional artifact, including full metadata for valid and invalid files and the complete
+parent/child hierarchy:
+
+```bash
+dbs2go-json dump '/Muon/Run2024C-PromptReco-v1/MINIAOD' --all --output output \
+  --ca-bundle "$X509_CERT_DIR"
+```
+
+`--all` is equivalent to combining `--include-files`, `--all-files`, and `--include-hierarchy`.
+
 Include the complete parent and child hierarchy of each dumped dataset:
 
 ```bash
@@ -140,6 +151,10 @@ dbs2go-json dump \
   --output output \
   --ca-bundle "$X509_CERT_DIR"
 ```
+
+Every dump also writes `cache.json` in the directory where the command is run. It maps each
+successfully dumped dataset to its output directory and fetch time; use `--cache PATH` to choose
+another location.
 
 This writes `hierarchy.json` and includes it in `bundle.json`. The hierarchy is a tree rooted at
 the requested dataset: each parent recursively contains its parents and each child recursively
@@ -152,6 +167,7 @@ followed indefinitely.
 output/
 ├── manifest.json
 ├── search_results.json
+# cache.json is written in the command's working directory by default
 └── datasets/
     └── Muon/
         └── Run2024C-PromptReco-v1/
@@ -162,13 +178,19 @@ output/
                 ├── runs.json
                 ├── blocks.json
                 ├── output_configs.json
+                ├── configuration.json
+                ├── site_replicas.json
                 ├── parents.json
                 ├── children.json
                 ├── hierarchy.json      # only with --include-hierarchy
                 └── files.json          # only with --include-files
 ```
 
-`bundle.json` contains all sections in one file. The individual files make later database ingestion simpler.
+`bundle.json` contains all sections in one file. Its top-level `configuration` field contains the
+raw DBS output configuration records and their unique CMSSW `global_tags`. The `site_replicas`
+section lists every replica site by block, per-site file and block coverage fractions, and the
+fractions of dataset blocks and files replicated to more than one site. The individual files make
+later database ingestion simpler.
 
 ## Run an individual DBS Reader query
 

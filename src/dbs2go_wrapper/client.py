@@ -24,6 +24,7 @@ READ_ENDPOINTS = {
     "runsummaries",
     "blocks",
     "blocksummaries",
+    "blocklocations",
     "files",
     "outputconfigs",
     "datasetparents",
@@ -305,7 +306,85 @@ class DBSClient:
         result: dict[str, Any] = {}
         for name, (endpoint, params) in sections.items():
             result[name] = self.get(endpoint, params)
+        result["site_replicas"] = self.dataset_site_replicas(dataset, result["blocks"])
         return result
+
+    def dataset_site_replicas(
+        self, dataset: str, blocks: Union[list[dict[str, Any]], dict[str, Any]]
+    ) -> dict[str, Any]:
+        """Collect block replica locations and dataset-level site replication metrics."""
+        if not isinstance(blocks, list):
+            raise DBSClientError("The blocks endpoint returned an object instead of a list")
+
+        locations_by_block: list[dict[str, Any]] = []
+        site_blocks: dict[str, list[dict[str, Any]]] = {}
+        replicated_blocks = 0
+        replicated_files = 0
+        total_files = 0
+
+        for block in blocks:
+            if not isinstance(block, dict) or not isinstance(block.get("block_name"), str):
+                continue
+            block_name = block["block_name"]
+            file_count = block.get("file_count", 0)
+            if not isinstance(file_count, int):
+                file_count = 0
+            total_files += file_count
+            payload = self.get("blocklocations", {"block_name": block_name})
+            if not isinstance(payload, list):
+                raise DBSClientError(
+                    "The blocklocations endpoint returned an object instead of a list"
+                )
+            locations = sorted(
+                {
+                    str(row.get("phedex_node_name") or row.get("site_name") or row.get("location"))
+                    for row in payload
+                    if isinstance(row, dict)
+                    and (row.get("phedex_node_name") or row.get("site_name") or row.get("location"))
+                }
+            )
+            locations_by_block.append({"block_name": block_name, "locations": locations})
+            if len(locations) > 1:
+                replicated_blocks += 1
+                replicated_files += file_count
+            for site in locations:
+                site_blocks.setdefault(site, []).append(
+                    {"block_name": block_name, "file_count": file_count}
+                )
+
+        block_count = len(locations_by_block)
+        sites = [
+            {
+                "site": site,
+                "block_count": len(site_entries),
+                "file_count": sum(entry["file_count"] for entry in site_entries),
+                "fraction_of_blocks": len(site_entries) / block_count if block_count else 0.0,
+                "fraction_of_files": (
+                    sum(entry["file_count"] for entry in site_entries) / total_files
+                    if total_files
+                    else 0.0
+                ),
+            }
+            for site, site_entries in sorted(site_blocks.items())
+        ]
+        return {
+            "dataset": dataset,
+            "block_locations": locations_by_block,
+            "sites": sites,
+            "replication": {
+                "site_count": len(sites),
+                "block_count": block_count,
+                "replicated_block_count": replicated_blocks,
+                "fraction_of_blocks_replicated": replicated_blocks / block_count
+                if block_count
+                else 0.0,
+                "file_count": total_files,
+                "replicated_file_count": replicated_files,
+                "fraction_of_files_replicated": replicated_files / total_files
+                if total_files
+                else 0.0,
+            },
+        }
 
     def dataset_hierarchy(self, dataset: str) -> dict[str, Any]:
         """Return every ancestor and descendant of ``dataset`` as a tree.
@@ -318,7 +397,9 @@ class DBSClient:
         def related_datasets(endpoint: str, current: str, field: str) -> list[str]:
             payload = self.get(endpoint, {"dataset": current})
             if not isinstance(payload, list):
-                raise DBSClientError(f"The {endpoint} endpoint returned an object instead of a list")
+                raise DBSClientError(
+                    f"The {endpoint} endpoint returned an object instead of a list"
+                )
             return sorted(
                 {
                     row[field]
@@ -327,7 +408,9 @@ class DBSClient:
                 }
             )
 
-        def walk(endpoint: str, field: str, branch: str, current: str, seen: set[str]) -> list[dict[str, Any]]:
+        def walk(
+            endpoint: str, field: str, branch: str, current: str, seen: set[str]
+        ) -> list[dict[str, Any]]:
             nodes: list[dict[str, Any]] = []
             for related in related_datasets(endpoint, current, field):
                 node: dict[str, Any] = {"dataset": related}

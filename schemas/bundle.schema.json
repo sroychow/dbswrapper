@@ -3,17 +3,38 @@
   "$id": "https://example.invalid/dbs2go-wrapper/bundle.schema.json",
   "title": "DBS dataset metadata bundle",
   "type": "object",
-  "required": ["schema_version", "dataset", "source", "sections"],
+  "required": [
+    "schema_version",
+    "dataset",
+    "source",
+    "sections",
+    "configuration"
+  ],
   "properties": {
-    "schema_version": {"const": 1},
-    "dataset": {"type": "string", "pattern": "^/[^/]+/[^/]+/[^/]+$"},
+    "schema_version": {
+      "const": 1
+    },
+    "dataset": {
+      "type": "string",
+      "pattern": "^/[^/]+/[^/]+/[^/]+$"
+    },
     "source": {
       "type": "object",
-      "required": ["base_url", "instance", "fetched_at"],
+      "required": [
+        "base_url",
+        "instance",
+        "fetched_at"
+      ],
       "properties": {
-        "base_url": {"type": "string"},
-        "instance": {"type": "string"},
-        "fetched_at": {"type": "string"}
+        "base_url": {
+          "type": "string"
+        },
+        "instance": {
+          "type": "string"
+        },
+        "fetched_at": {
+          "type": "string"
+        }
       },
       "additionalProperties": true
     },
@@ -26,9 +47,29 @@
         "blocks",
         "output_configs",
         "parents",
-        "children"
+        "children",
+        "site_replicas"
       ],
       "additionalProperties": true
+    },
+    "configuration": {
+      "type": "object",
+      "required": [
+        "output_configs",
+        "global_tags"
+      ],
+      "properties": {
+        "output_configs": {
+          "type": "array"
+        },
+        "global_tags": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "additionalProperties": false
     }
   },
   "additionalProperties": false
