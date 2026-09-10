@@ -10,6 +10,16 @@ from dbs2go_wrapper.cli import main
 
 
 DATASET = "/Primary/Processed-v1/MINIAOD"
+PARENT_CHAIN = {
+    DATASET: ["/Parent/Processed/GEN-SIM"],
+    "/Parent/Processed/GEN-SIM": ["/Grandparent/Processed/GEN"],
+    "/Grandparent/Processed/GEN": [],
+}
+CHILD_CHAIN = {
+    DATASET: ["/Child/Processed/NANOAOD"],
+    "/Child/Processed/NANOAOD": ["/Grandchild/Processed/NANOAOD"],
+    "/Grandchild/Processed/NANOAOD": [],
+}
 
 
 class FakeDBSHandler(BaseHTTPRequestHandler):
@@ -39,10 +49,21 @@ class FakeDBSHandler(BaseHTTPRequestHandler):
             payload = [{"block_name": f"{DATASET}#block", "file_count": 2}]
         elif endpoint == "outputconfigs":
             payload = [{"release_version": "CMSSW_X_Y_Z", "global_tag": "TEST"}]
+        elif endpoint == "blocklocations":
+            payload = [
+                {"phedex_node_name": "T2_US_Test"},
+                {"phedex_node_name": "T1_US_Test"},
+            ]
         elif endpoint == "datasetparents":
-            payload = [{"parent_dataset": "/Parent/Processed/GEN-SIM"}]
+            payload = [
+                {"parent_dataset": parent}
+                for parent in PARENT_CHAIN.get(params.get("dataset", [""])[0], [])
+            ]
         elif endpoint == "datasetchildren":
-            payload = []
+            payload = [
+                {"child_dataset": child}
+                for child in CHILD_CHAIN.get(params.get("dataset", [""])[0], [])
+            ]
         elif endpoint == "files":
             payload = [{"logical_file_name": "/store/test.root", "event_count": 100}]
         else:
@@ -69,6 +90,9 @@ def run_server() -> tuple[ThreadingHTTPServer, threading.Thread, str]:
 def test_dump_command_writes_bundle_and_manifest(tmp_path: Path) -> None:
     server, thread, base_url = run_server()
     output = tmp_path / "dump"
+    target = output / "datasets" / "Primary" / "Processed-v1" / "MINIAOD"
+    target.mkdir(parents=True)
+    (target / "stale-section.json").write_text("{}", encoding="utf-8")
     try:
         exit_code = main(
             [
@@ -79,9 +103,11 @@ def test_dump_command_writes_bundle_and_manifest(tmp_path: Path) -> None:
                 "--no-cert",
                 "--output",
                 str(output),
-                "--include-files",
+                "--all",
                 "--workers",
                 "2",
+                "--cache",
+                str(tmp_path / "cache.json"),
             ]
         )
     finally:
@@ -92,9 +118,66 @@ def test_dump_command_writes_bundle_and_manifest(tmp_path: Path) -> None:
     manifest = json.loads((output / "manifest.json").read_text(encoding="utf-8"))
     assert manifest["counts"]["matched"] == 1
     assert manifest["counts"]["successful"] == 1
+    assert manifest["query"] == {
+        "pattern": DATASET,
+        "access_type": "*",
+        "extra_params": {},
+        "include_all": True,
+        "include_files": True,
+        "include_hierarchy": True,
+        "valid_files_only": False,
+    }
 
-    target = output / "datasets" / "Primary" / "Processed-v1" / "MINIAOD"
     bundle = json.loads((target / "bundle.json").read_text(encoding="utf-8"))
+    assert list(target.glob("*.json")) == [target / "bundle.json"]
     assert bundle["dataset"] == DATASET
     assert bundle["sections"]["summary"][0]["num_event"] == 100
     assert bundle["sections"]["files"][0]["logical_file_name"] == "/store/test.root"
+    assert bundle["configuration"] == {
+        "output_configs": [{"release_version": "CMSSW_X_Y_Z", "global_tag": "TEST"}],
+        "global_tags": ["TEST"],
+    }
+    site_replicas = bundle["sections"]["site_replicas"]
+    assert site_replicas["replication"] == {
+        "site_count": 2,
+        "block_count": 1,
+        "replicated_block_count": 1,
+        "fraction_of_blocks_replicated": 1.0,
+        "file_count": 2,
+        "replicated_file_count": 2,
+        "fraction_of_files_replicated": 1.0,
+    }
+    assert site_replicas["sites"] == [
+        {
+            "site": "T1_US_Test",
+            "block_count": 1,
+            "file_count": 2,
+            "fraction_of_blocks": 1.0,
+            "fraction_of_files": 1.0,
+        },
+        {
+            "site": "T2_US_Test",
+            "block_count": 1,
+            "file_count": 2,
+            "fraction_of_blocks": 1.0,
+            "fraction_of_files": 1.0,
+        },
+    ]
+    cache = json.loads((tmp_path / "cache.json").read_text(encoding="utf-8"))
+    assert cache["datasets"][DATASET]["path"] == str(target)
+    hierarchy = bundle["sections"]["hierarchy"]
+    assert hierarchy == {
+        "dataset": DATASET,
+        "parents": [
+            {
+                "dataset": "/Parent/Processed/GEN-SIM",
+                "parents": [{"dataset": "/Grandparent/Processed/GEN", "parents": []}],
+            }
+        ],
+        "children": [
+            {
+                "dataset": "/Child/Processed/NANOAOD",
+                "children": [{"dataset": "/Grandchild/Processed/NANOAOD", "children": []}],
+            }
+        ],
+    }

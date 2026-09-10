@@ -24,6 +24,7 @@ READ_ENDPOINTS = {
     "runsummaries",
     "blocks",
     "blocksummaries",
+    "blocklocations",
     "files",
     "outputconfigs",
     "datasetparents",
@@ -63,6 +64,28 @@ def _existing(path: Optional[Union[str, os.PathLike[str]]]) -> Optional[Path]:
     return candidate if candidate.is_file() else None
 
 
+def _require_unencrypted_private_key(path: Path) -> None:
+    """Reject keys that Requests cannot use without an interactive password."""
+    try:
+        contents = path.read_bytes()
+    except OSError:
+        return
+    if b"ENCRYPTED PRIVATE KEY" in contents or b"Proc-Type: 4,ENCRYPTED" in contents:
+        raise DBSClientError(
+            f"Private key is encrypted: {path}. Requests cannot prompt for a key password. "
+            "Create a CMS proxy with 'voms-proxy-init -voms cms' and use --proxy "
+            "or X509_USER_PROXY, or provide an unencrypted key in a protected file."
+        )
+
+
+def _certificate_key_config(cert_path: Path, key_path: Path) -> CertificateConfig:
+    _require_unencrypted_private_key(key_path)
+    return CertificateConfig(
+        (str(cert_path), str(key_path)),
+        "x509-certificate-key",
+    )
+
+
 def discover_certificate(
     *,
     proxy: Optional[str] = None,
@@ -92,10 +115,7 @@ def discover_certificate(
         key_path = _existing(key)
         if not cert_path or not key_path:
             raise DBSClientError("Both --cert and --key must point to existing files")
-        return CertificateConfig(
-            (str(cert_path), str(key_path)),
-            "x509-certificate-key",
-        )
+        return _certificate_key_config(cert_path, key_path)
 
     env_proxy = _existing(os.getenv("X509_USER_PROXY"))
     if env_proxy:
@@ -111,18 +131,12 @@ def discover_certificate(
     env_cert = _existing(os.getenv("X509_USER_CERT"))
     env_key = _existing(os.getenv("X509_USER_KEY"))
     if env_cert and env_key:
-        return CertificateConfig(
-            (str(env_cert), str(env_key)),
-            "x509-certificate-key",
-        )
+        return _certificate_key_config(env_cert, env_key)
 
     globus_cert = _existing("~/.globus/usercert.pem")
     globus_key = _existing("~/.globus/userkey.pem")
     if globus_cert and globus_key:
-        return CertificateConfig(
-            (str(globus_cert), str(globus_key)),
-            "x509-certificate-key",
-        )
+        return _certificate_key_config(globus_cert, globus_key)
 
     if allow_no_certificate:
         return CertificateConfig(None, "none")
@@ -305,4 +319,135 @@ class DBSClient:
         result: dict[str, Any] = {}
         for name, (endpoint, params) in sections.items():
             result[name] = self.get(endpoint, params)
+        result["site_replicas"] = self.dataset_site_replicas(dataset, result["blocks"])
         return result
+
+    def dataset_site_replicas(
+        self, dataset: str, blocks: Union[list[dict[str, Any]], dict[str, Any]]
+    ) -> dict[str, Any]:
+        """Collect block replica locations and dataset-level site replication metrics."""
+        if not isinstance(blocks, list):
+            raise DBSClientError("The blocks endpoint returned an object instead of a list")
+
+        locations_by_block: list[dict[str, Any]] = []
+        site_blocks: dict[str, list[dict[str, Any]]] = {}
+        replicated_blocks = 0
+        replicated_files = 0
+        total_files = 0
+
+        for block in blocks:
+            if not isinstance(block, dict) or not isinstance(block.get("block_name"), str):
+                continue
+            block_name = block["block_name"]
+            file_count = block.get("file_count", 0)
+            if not isinstance(file_count, int):
+                file_count = 0
+            total_files += file_count
+            try:
+                payload = self.get("blocklocations", {"block_name": block_name})
+            except DBSClientError as exc:
+                if "HTTP 404" in str(exc):
+                    return {
+                        "available": False,
+                        "source": "DBSReader/blocklocations",
+                        "reason": (
+                            "The configured DBS Reader does not provide the blocklocations "
+                            "endpoint, so site replica metrics could not be collected."
+                        ),
+                    }
+                raise
+            if not isinstance(payload, list):
+                raise DBSClientError(
+                    "The blocklocations endpoint returned an object instead of a list"
+                )
+            locations = sorted(
+                {
+                    str(row.get("phedex_node_name") or row.get("site_name") or row.get("location"))
+                    for row in payload
+                    if isinstance(row, dict)
+                    and (row.get("phedex_node_name") or row.get("site_name") or row.get("location"))
+                }
+            )
+            locations_by_block.append({"block_name": block_name, "locations": locations})
+            if len(locations) > 1:
+                replicated_blocks += 1
+                replicated_files += file_count
+            for site in locations:
+                site_blocks.setdefault(site, []).append(
+                    {"block_name": block_name, "file_count": file_count}
+                )
+
+        block_count = len(locations_by_block)
+        sites = [
+            {
+                "site": site,
+                "block_count": len(site_entries),
+                "file_count": sum(entry["file_count"] for entry in site_entries),
+                "fraction_of_blocks": len(site_entries) / block_count if block_count else 0.0,
+                "fraction_of_files": (
+                    sum(entry["file_count"] for entry in site_entries) / total_files
+                    if total_files
+                    else 0.0
+                ),
+            }
+            for site, site_entries in sorted(site_blocks.items())
+        ]
+        return {
+            "dataset": dataset,
+            "block_locations": locations_by_block,
+            "sites": sites,
+            "replication": {
+                "site_count": len(sites),
+                "block_count": block_count,
+                "replicated_block_count": replicated_blocks,
+                "fraction_of_blocks_replicated": replicated_blocks / block_count
+                if block_count
+                else 0.0,
+                "file_count": total_files,
+                "replicated_file_count": replicated_files,
+                "fraction_of_files_replicated": replicated_files / total_files
+                if total_files
+                else 0.0,
+            },
+        }
+
+    def dataset_hierarchy(self, dataset: str) -> dict[str, Any]:
+        """Return every ancestor and descendant of ``dataset`` as a tree.
+
+        DBS returns only directly related datasets from the parent and child
+        endpoints.  This method follows each direction independently so the
+        returned hierarchy does not loop back through the dataset being dumped.
+        """
+
+        def related_datasets(endpoint: str, current: str, field: str) -> list[str]:
+            payload = self.get(endpoint, {"dataset": current})
+            if not isinstance(payload, list):
+                raise DBSClientError(
+                    f"The {endpoint} endpoint returned an object instead of a list"
+                )
+            return sorted(
+                {
+                    row[field]
+                    for row in payload
+                    if isinstance(row, dict) and isinstance(row.get(field), str)
+                }
+            )
+
+        def walk(
+            endpoint: str, field: str, branch: str, current: str, seen: set[str]
+        ) -> list[dict[str, Any]]:
+            nodes: list[dict[str, Any]] = []
+            for related in related_datasets(endpoint, current, field):
+                node: dict[str, Any] = {"dataset": related}
+                if related in seen:
+                    node["cycle"] = True
+                else:
+                    node[branch] = walk(endpoint, field, branch, related, seen | {related})
+                nodes.append(node)
+            return nodes
+
+        return {
+            "dataset": dataset,
+            "parents": walk("datasetparents", "parent_dataset", "parents", dataset, {dataset}),
+            "children": walk("datasetchildren", "child_dataset", "children", dataset, {dataset}),
+        }

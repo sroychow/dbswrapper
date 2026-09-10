@@ -28,6 +28,36 @@ def test_discover_missing_explicit_proxy_fails(tmp_path: Path) -> None:
         discover_certificate(proxy=str(tmp_path / "missing.pem"))
 
 
+def test_discover_encrypted_explicit_private_key_fails_with_proxy_guidance(tmp_path: Path) -> None:
+    cert = tmp_path / "cert.pem"
+    key = tmp_path / "key.pem"
+    cert.write_text("certificate", encoding="utf-8")
+    key.write_text("-----BEGIN ENCRYPTED PRIVATE KEY-----\nkey\n", encoding="utf-8")
+
+    with pytest.raises(DBSClientError, match="voms-proxy-init"):
+        discover_certificate(cert=str(cert), key=str(key))
+
+
+def test_site_replicas_are_marked_unavailable_when_blocklocations_is_not_supported() -> None:
+    client = DBSClient(
+        base_url="https://example.invalid",
+        certificate=CertificateConfig(None, "none"),
+        session=Mock(),
+    )
+    client.get = Mock(side_effect=DBSClientError("DBS request failed with HTTP 404"))
+
+    result = client.dataset_site_replicas("/A/B/C", [{"block_name": "/A/B/C#block"}])
+
+    assert result == {
+        "available": False,
+        "source": "DBSReader/blocklocations",
+        "reason": (
+            "The configured DBS Reader does not provide the blocklocations endpoint, "
+            "so site replica metrics could not be collected."
+        ),
+    }
+
+
 def test_client_search_builds_expected_request() -> None:
     response = Mock()
     response.raise_for_status.return_value = None

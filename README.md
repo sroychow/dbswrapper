@@ -13,10 +13,12 @@ For each matching dataset, the `dump` command queries:
 - `filesummaries` — file, event, block, lumi, and size summary
 - `runs` — associated runs
 - `blocks` — block metadata
-- `outputconfigs` — processing and CMSSW configuration
+- `outputconfigs` — processing configuration and CMSSW global tag
+- `blocklocations` — replica sites for every dataset block, summarized as site and replication metrics when supported by the configured DBS Reader
 - `datasetparents` — parent datasets
 - `datasetchildren` — child datasets
 - `files` — optional full file metadata
+- `hierarchy` — optional recursive parent and child dataset tree
 
 Only read-only DBS endpoints are allowed by the client.
 
@@ -70,6 +72,21 @@ The program searches for credentials in this order:
 6. `~/.globus/usercert.pem` and `~/.globus/userkey.pem`
 
 The private key or proxy is never copied into the output directory.
+
+### Encrypted private keys
+
+The HTTP client cannot supply an interactive password for an encrypted private key. If you see
+`Client private key is encrypted, password is required`, create a CMS proxy and use it instead:
+
+```bash
+voms-proxy-init -voms cms -valid 24:00
+export X509_USER_PROXY="$(voms-proxy-info -path)"
+dbs2go-json dump '/Muon/Run2024C-PromptReco-v1/MINIAOD' --output output
+```
+
+You can also pass that proxy explicitly with `--proxy "$(voms-proxy-info -path)"`. As an
+alternative, `--cert` and `--key` require an unencrypted private key stored with restrictive file
+permissions.
 
 ## Search for datasets
 
@@ -130,28 +147,57 @@ dbs2go-json dump \
 
 `--include-files` can create a large JSON file for large datasets, so it is disabled by default.
 
+Dump every optional artifact, including full metadata for valid and invalid files and the complete
+parent/child hierarchy:
+
+```bash
+dbs2go-json dump '/Muon/Run2024C-PromptReco-v1/MINIAOD' --all --output output \
+  --ca-bundle "$X509_CERT_DIR"
+```
+
+`--all` is equivalent to combining `--include-files`, `--all-files`, and `--include-hierarchy`.
+
+Include the complete parent and child hierarchy of each dumped dataset:
+
+```bash
+dbs2go-json dump \
+  '/Muon/Run2024C-PromptReco-v1/MINIAOD' \
+  --include-hierarchy \
+  --output output \
+  --ca-bundle "$X509_CERT_DIR"
+```
+
+Every dump also writes `cache.json` in the directory where the command is run. It maps each
+successfully dumped dataset to its output directory and fetch time; use `--cache PATH` to choose
+another location.
+
+This writes `hierarchy.json` and includes it in `bundle.json`. The hierarchy is a tree rooted at
+the requested dataset: each parent recursively contains its parents and each child recursively
+contains its children. Repeated relationships are marked with `"cycle": true` rather than being
+followed indefinitely.
+
 ## Output layout
 
 ```text
 output/
 ├── manifest.json
 ├── search_results.json
+# cache.json is written in the command's working directory by default
 └── datasets/
     └── Muon/
         └── Run2024C-PromptReco-v1/
             └── MINIAOD/
-                ├── bundle.json
-                ├── metadata.json
-                ├── summary.json
-                ├── runs.json
-                ├── blocks.json
-                ├── output_configs.json
-                ├── parents.json
-                ├── children.json
-                └── files.json          # only with --include-files
-```
+                └── bundle.json
 
-`bundle.json` contains all sections in one file. The individual files make later database ingestion simpler.
+Each dataset directory contains only `bundle.json`, which contains every requested section. Its
+top-level `configuration` field contains the raw DBS output configuration records and their unique
+CMSSW `global_tags`. The `site_replicas` section lists every replica site by block, per-site file
+and block coverage fractions, and the fractions of dataset blocks and files replicated to more
+than one site. Re-dumping a dataset removes any older auxiliary JSON files from that dataset
+directory. Some current CMS DBS Reader deployments do not expose `blocklocations`; in that case
+the dump succeeds and the `site_replicas` section reports `"available": false` with an explanation
+instead of failing the entire dataset dump.
+>>>>>>> theirs
 
 ## Run an individual DBS Reader query
 

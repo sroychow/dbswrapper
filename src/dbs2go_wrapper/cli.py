@@ -121,9 +121,20 @@ def build_parser() -> argparse.ArgumentParser:
         help="Also dump full file metadata; this can be very large",
     )
     dump.add_argument(
+        "--include-hierarchy",
+        action="store_true",
+        help="Recursively dump all parent and child datasets as hierarchy.json",
+    )
+    dump.add_argument(
         "--all-files",
         action="store_true",
         help="Include invalid files as well as valid files",
+    )
+    dump.add_argument(
+        "--all",
+        dest="include_all",
+        action="store_true",
+        help="Dump all optional data: file metadata, invalid files, and the complete hierarchy",
     )
     dump.add_argument(
         "--max-datasets",
@@ -132,6 +143,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="Safety limit for wildcard searches; 0 means unlimited",
     )
     dump.add_argument("--workers", type=int, default=4, help="Concurrent dataset workers")
+    dump.add_argument(
+        "--cache",
+        type=Path,
+        default=Path("cache.json"),
+        help="Dataset-to-output directory cache JSON (default: ./cache.json)",
+    )
     dump.set_defaults(handler=handle_dump)
 
     query = subparsers.add_parser("query", parents=[common], help="Run a read-only DBS endpoint")
@@ -199,7 +216,9 @@ def handle_search(args: argparse.Namespace) -> int:
         )
 
     if args.names_only:
-        names = [row.get("dataset") for row in results if isinstance(row, dict) and row.get("dataset")]
+        names = [
+            row.get("dataset") for row in results if isinstance(row, dict) and row.get("dataset")
+        ]
         if args.output:
             emit(names, output=args.output, pretty=not args.compact)
         else:
@@ -234,6 +253,8 @@ def dump_one_dataset(
                 include_files=args.include_files,
                 valid_files_only=not args.all_files,
             )
+            if args.include_hierarchy:
+                sections["hierarchy"] = client.dataset_hierarchy(dataset)
 
         fetched_at = utc_now()
         bundle = {
@@ -244,11 +265,22 @@ def dump_one_dataset(
                 "instance": args.instance,
                 "fetched_at": fetched_at,
             },
+            "configuration": {
+                "output_configs": sections["output_configs"],
+                "global_tags": sorted(
+                    {
+                        row["global_tag"]
+                        for row in sections["output_configs"]
+                        if isinstance(row, dict) and isinstance(row.get("global_tag"), str)
+                    }
+                ),
+            },
             "sections": sections,
         }
+        target.mkdir(parents=True, exist_ok=True)
+        for path in target.glob("*.json"):
+            path.unlink()
         write_json(target / "bundle.json", bundle, pretty=not args.compact)
-        for section, payload in sections.items():
-            write_json(target / f"{section}.json", payload, pretty=not args.compact)
         return {
             "dataset": dataset,
             "status": "ok",
@@ -264,7 +296,35 @@ def dump_one_dataset(
         }
 
 
+def update_cache(cache_path: Path, results: list[dict[str, Any]], *, pretty: bool) -> None:
+    """Update the persistent dataset-to-output-directory index after a dump."""
+    cache: dict[str, Any] = {"schema_version": 1, "datasets": {}}
+    if cache_path.exists():
+        try:
+            payload = json.loads(cache_path.read_text(encoding="utf-8"))
+            if isinstance(payload, dict) and isinstance(payload.get("datasets"), dict):
+                cache = payload
+        except (OSError, json.JSONDecodeError):
+            pass
+
+    datasets = cache.setdefault("datasets", {})
+    for item in results:
+        if item["status"] == "ok":
+            datasets[item["dataset"]] = {
+                "path": item["path"],
+                "fetched_at": item["fetched_at"],
+            }
+    cache["schema_version"] = 1
+    cache["updated_at"] = utc_now()
+    write_json(cache_path, cache, pretty=pretty)
+
+
 def handle_dump(args: argparse.Namespace) -> int:
+    if args.include_all:
+        args.include_files = True
+        args.include_hierarchy = True
+        args.all_files = True
+
     if args.workers < 1:
         raise DBSClientError("--workers must be at least 1")
     if args.max_datasets < 0:
@@ -346,7 +406,9 @@ def handle_dump(args: argparse.Namespace) -> int:
             "pattern": args.pattern,
             "access_type": args.access_type,
             "extra_params": extra,
+            "include_all": args.include_all,
             "include_files": args.include_files,
+            "include_hierarchy": args.include_hierarchy,
             "valid_files_only": not args.all_files,
         },
         "source": {
@@ -362,6 +424,7 @@ def handle_dump(args: argparse.Namespace) -> int:
         "datasets": results,
     }
     write_json(root / "manifest.json", manifest, pretty=not args.compact)
+    update_cache(args.cache.expanduser().resolve(), results, pretty=not args.compact)
     print(root / "manifest.json")
     return 1 if failures else 0
 
